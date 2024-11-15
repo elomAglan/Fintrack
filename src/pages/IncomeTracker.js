@@ -1,159 +1,163 @@
-// src/pages/Incomes.js
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FaPlus, FaArrowLeft } from 'react-icons/fa';
+import { db, auth } from '../config/firebaseConfig'; // Assurez-vous que le chemin est correct
+import { collection, addDoc, getDocs, query, where } from 'firebase/firestore';
 
-const Incomes = () => {
-    const navigate = useNavigate();
-    const [incomes, setIncomes] = useState([]);
-    const [income, setIncome] = useState({ amount: '', source: '', description: '', date: '', frequency: 'mois' });
+const IncomeTracker = () => {
+    const [amount, setAmount] = useState('');
+    const [description, setDescription] = useState('');
+    const [category, setCategory] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [incomesList, setIncomesList] = useState([]); // Etat pour stocker la liste des revenus
+    const user = auth.currentUser; // Récupérer l'utilisateur connecté
 
-    // Charger les revenus depuis l'API
     useEffect(() => {
         const fetchIncomes = async () => {
+            if (!user) return; // Si aucun utilisateur n'est connecté, ne rien faire
+
             try {
-                const response = await fetch('http://localhost:5000/incomes'); // Remplacez par votre API
-                if (!response.ok) throw new Error('Erreur lors de la récupération des revenus');
-                const data = await response.json();
-                setIncomes(data);
+                // Récupérer les revenus de l'utilisateur depuis Firestore
+                const incomesCollection = collection(db, 'incomes');
+                const incomesQuery = query(incomesCollection, where('userId', '==', user.uid));
+                const incomesSnapshot = await getDocs(incomesQuery);
+                const incomes = incomesSnapshot.docs.map(doc => doc.data());
+                setIncomesList(incomes);
             } catch (error) {
-                console.error('Erreur lors du chargement des revenus :', error);
+                console.error('Erreur lors de la récupération des revenus:', error);
             }
         };
+
         fetchIncomes();
-    }, []);
+    }, [user]);
 
-    // Ajouter un revenu dans PostgreSQL
-    const handleAddIncome = async (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        try {
-            const response = await fetch('http://localhost:5000/incomes', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(income),
-            });
-            if (!response.ok) throw new Error('Erreur lors de l\'ajout du revenu');
-            const newIncome = await response.json(); // Récupérer le nouveau revenu
-            setIncomes([...incomes, newIncome]); // Mettre à jour l'état local
-            setIncome({ amount: '', source: '', description: '', date: '', frequency: 'mois' }); // Réinitialiser le formulaire
-        } catch (error) {
-            console.error('Erreur lors de l\'ajout du revenu :', error);
+        if (!user) {
+            alert('Vous devez être connecté pour ajouter un revenu.');
+            return;
         }
-    };
 
-    // Supprimer un revenu de PostgreSQL
-    const handleDeleteIncome = async (id) => {
+        // Validation des champs
+        if (!amount || !description || !category) {
+            alert('Tous les champs sont obligatoires.');
+            return;
+        }
+
+        setLoading(true);
+
         try {
-            await fetch(`http://localhost:5000/incomes/${id}`, {
-                method: 'DELETE',
+            // Ajouter un revenu dans Firestore
+            const incomesCollection = collection(db, 'incomes');
+            await addDoc(incomesCollection, {
+                amount: parseFloat(amount),
+                description,
+                category,
+                userId: user.uid,
+                createdAt: new Date(),
             });
-            setIncomes(incomes.filter((income) => income.id !== id)); // Mettre à jour l'état local
+
+            // Réinitialiser le formulaire après l'ajout
+            setAmount('');
+            setDescription('');
+            setCategory('');
+
+            // Recharger la liste des revenus après l'ajout
+            const incomesQuery = query(incomesCollection, where('userId', '==', user.uid));
+            const incomesSnapshot = await getDocs(incomesQuery);
+            const incomes = incomesSnapshot.docs.map(doc => doc.data());
+            setIncomesList(incomes);
+
+            alert('Revenu ajouté avec succès.');
         } catch (error) {
-            console.error('Erreur lors de la suppression du revenu :', error);
+            console.error('Erreur lors de l\'ajout du revenu:', error);
+            alert('Une erreur est survenue lors de l\'ajout du revenu.');
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <div className="container mx-auto p-4 pt-24">
-            {/* Bouton de retour */}
-            <div className="mb-4">
-                <button 
-                    onClick={() => navigate(-1)} 
-                    className="flex items-center text-blue-500 hover:text-blue-700"
-                >
-                    <FaArrowLeft className="mr-2" /> Retour
-                </button>
-            </div>
-
-            <h2 className="text-2xl font-bold mb-4">Suivi des Revenus</h2>
+        <div className="container mx-auto p-6">
+            <h2 className="text-3xl font-bold mb-4 text-center">Suivi des Revenus</h2>
 
             {/* Formulaire d'ajout de revenu */}
-            <form onSubmit={handleAddIncome} className="bg-white p-4 rounded-lg shadow-md mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block mb-2 font-bold">Montant</label>
+            <div className="bg-white shadow-md rounded-lg p-6 mb-6">
+                <h3 className="text-xl font-semibold mb-4">Ajouter un revenu</h3>
+                <form onSubmit={handleSubmit}>
+                    <div className="mb-4">
+                        <label htmlFor="amount" className="block font-medium mb-2">Montant</label>
                         <input
                             type="number"
-                            value={income.amount}
-                            onChange={(e) => setIncome({ ...income, amount: e.target.value })}
+                            id="amount"
+                            className="w-full p-3 border border-gray-300 rounded-lg"
+                            value={amount}
+                            onChange={(e) => setAmount(e.target.value)}
+                            placeholder="Montant du revenu"
                             required
-                            className="w-full p-2 border rounded"
                         />
                     </div>
-                    <div>
-                        <label className="block mb-2 font-bold">Source</label>
+                    <div className="mb-4">
+                        <label htmlFor="description" className="block font-medium mb-2">Description</label>
                         <input
                             type="text"
-                            value={income.source}
-                            onChange={(e) => setIncome({ ...income, source: e.target.value })}
+                            id="description"
+                            className="w-full p-3 border border-gray-300 rounded-lg"
+                            value={description}
+                            onChange={(e) => setDescription(e.target.value)}
+                            placeholder="Description du revenu"
                             required
-                            className="w-full p-2 border rounded"
                         />
                     </div>
-                    <div>
-                        <label className="block mb-2 font-bold">Description</label>
-                        <input
-                            type="text"
-                            value={income.description}
-                            onChange={(e) => setIncome({ ...income, description: e.target.value })}
-                            className="w-full p-2 border rounded"
-                        />
-                    </div>
-                    <div>
-                        <label className="block mb-2 font-bold">Date</label>
-                        <input
-                            type="date"
-                            value={income.date}
-                            onChange={(e) => setIncome({ ...income, date: e.target.value })}
-                            required
-                            className="w-full p-2 border rounded"
-                        />
-                    </div>
-                    <div>
-                        <label className="block mb-2 font-bold">Fréquence</label>
+                    <div className="mb-4">
+                        <label htmlFor="category" className="block font-medium mb-2">Catégorie</label>
                         <select
-                            value={income.frequency}
-                            onChange={(e) => setIncome({ ...income, frequency: e.target.value })}
+                            id="category"
+                            className="w-full p-3 border border-gray-300 rounded-lg"
+                            value={category}
+                            onChange={(e) => setCategory(e.target.value)}
                             required
-                            className="w-full p-2 border rounded"
                         >
-                            <option value="mois">Mensuel</option>
-                            <option value="semaine">Hebdomadaire</option>
-                            <option value="jour">Quotidien</option>
+                            <option value="">Sélectionner une catégorie</option>
+                            <option value="Salaires">Salaires</option>
+                            <option value="Investissements">Investissements</option>
+                            <option value="Autre">Autre</option>
                         </select>
                     </div>
-                </div>
-                <button
-                    type="submit"
-                    className="mt-4 bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-700 transition duration-300"
-                >
-                    <FaPlus className="inline mr-2" /> Ajouter un revenu
-                </button>
-            </form>
+                    <button
+                        type="submit"
+                        className="w-full p-3 bg-blue-500 text-white rounded-lg"
+                        disabled={loading}
+                    >
+                        {loading ? 'Ajout en cours...' : 'Ajouter un revenu'}
+                    </button>
+                </form>
+            </div>
 
-            {/* Liste des revenus récents */}
-            <h3 className="text-xl font-bold mb-4">Revenus récents</h3>
-            <ul className="space-y-2">
-                {incomes.map((income) => (
-                    <li key={income.id} className="bg-gray-100 p-4 rounded-lg shadow-sm flex justify-between">
-                        <div>
-                            <span>{income.description || 'Revenu sans description'}</span>
-                            <div className="text-gray-500 text-sm">{income.date}</div>
-                        </div>
-                        <span>{income.amount} € - {income.source} ({income.frequency})</span>
-                        <button
-                            onClick={() => handleDeleteIncome(income.id)}
-                            className="bg-red-500 text-white py-1 px-2 rounded hover:bg-red-700 transition duration-300 ml-4"
-                        >
-                            Supprimer
-                        </button>
-                    </li>
-                ))}
-            </ul>
+            {/* Liste des revenus */}
+            <div className="bg-white shadow-md rounded-lg p-6">
+                <h3 className="text-xl font-semibold mb-4">Liste des Revenus</h3>
+                <div className="space-y-4">
+                    {incomesList.length === 0 ? (
+                        <p>Aucun revenu ajouté.</p>
+                    ) : (
+                        incomesList.map((income, index) => (
+                            <div key={index} className="bg-gray-100 p-4 rounded-lg shadow-sm">
+                                <div className="flex justify-between">
+                                    <div>
+                                        <p className="font-medium">Montant : ${income.amount}</p>
+                                        <p className="text-sm text-gray-600">Catégorie : {income.category}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-gray-500">{new Date(income.createdAt.seconds * 1000).toLocaleDateString()}</p>
+                                    </div>
+                                </div>
+                                <p className="mt-2 text-gray-700">{income.description}</p>
+                            </div>
+                        ))
+                    )}
+                </div>
+            </div>
         </div>
     );
 };
 
-export default Incomes;
+export default IncomeTracker;
